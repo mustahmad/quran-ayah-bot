@@ -88,19 +88,6 @@ def format_result(results: list, query: str, ai_analysis: dict = None) -> str:
         lines.append(f"\n<b>Транскрипция:</b>")
         lines.append(f"<i>{translit}</i>")
 
-    if len(results) > 1:
-        lines.append("\n━━━━━━━━━━━━━━━━")
-        lines.append("📋 <b>Другие варианты:</b>\n")
-        for i, r in enumerate(results[1:], 2):
-            s_num = r["surah"]
-            s_name = SURAH_NAMES_RU.get(s_num, r["surah_english"])
-            lines.append(
-                f"  {i}. Сура {s_num} ({s_name}), Аят {r['ayah']} "
-                f"— <b>{round(r['score'])}%</b>"
-            )
-            if i <= 3:
-                lines.append(f"     <i>{r['text'][:80]}...</i>")
-
     return "\n".join(lines)
 
 
