@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+quran_cache.json
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
