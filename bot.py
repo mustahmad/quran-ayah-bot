@@ -65,21 +65,17 @@ def format_result(results: list, query: str, ai_analysis: dict = None) -> str:
         return "🔍 Не удалось выполнить поиск. Попробуйте ещё раз."
 
     lines = []
-
-    # Если ИИ дал свой анализ — показываем его первым
-    if ai_analysis and ai_analysis.get("reasoning"):
-        lines.append(f"🤖 <b>ИИ-анализ:</b> {ai_analysis['reasoning']}\n")
-
     best = results[0]
+    score = round(best["score"])
     surah_num = best["surah"]
     surah_name_ru = SURAH_NAMES_RU.get(surah_num, best["surah_english"])
 
-    if best["score"] >= 90:
-        lines.append(f"✅ <b>Похож на {best['score']}%</b>\n")
-    elif best["score"] >= 70:
-        lines.append(f"🔶 <b>Возможное совпадение ({best['score']}%)</b>\n")
+    if score >= 90:
+        lines.append(f"✅ <b>Похож на {score}%</b>\n")
+    elif score >= 70:
+        lines.append(f"🔶 <b>Возможное совпадение ({score}%)</b>\n")
     else:
-        lines.append(f"🔍 <b>Наиболее похожий результат ({best['score']}%)</b>\n")
+        lines.append(f"🔍 <b>Наиболее похожий результат ({score}%)</b>\n")
 
     lines.append(f"📖 <b>Сура:</b> {surah_num}. {surah_name_ru}")
     lines.append(f"   <i>{best['surah_name']}</i>")
@@ -100,7 +96,7 @@ def format_result(results: list, query: str, ai_analysis: dict = None) -> str:
             s_name = SURAH_NAMES_RU.get(s_num, r["surah_english"])
             lines.append(
                 f"  {i}. Сура {s_num} ({s_name}), Аят {r['ayah']} "
-                f"— <b>{r['score']}%</b>"
+                f"— <b>{round(r['score'])}%</b>"
             )
             if i <= 3:
                 lines.append(f"     <i>{r['text'][:80]}...</i>")
