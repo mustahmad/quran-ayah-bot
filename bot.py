@@ -64,54 +64,48 @@ async def track_user(update: Update):
 
 
 def format_result(results: list, query: str) -> str:
-    """Форматирует результаты поиска."""
+    """Форматирует результаты поиска. Всегда показывает топ с процентами."""
     if not results:
-        return (
-            "❌ К сожалению, не удалось найти подходящий аят.\n\n"
-            "Попробуйте:\n"
-            "• Ввести больше текста аята\n"
-            "• Проверить правильность написания\n"
-            "• Отправить аудио с чтением аята"
-        )
+        return "🔍 Не удалось выполнить поиск. Попробуйте ещё раз."
 
     lines = []
     best = results[0]
+    surah_num = best["surah"]
+    surah_name_ru = SURAH_NAMES_RU.get(surah_num, best["surah_english"])
 
-    if best["score"] >= 85:
-        surah_num = best["surah"]
-        surah_name_ru = SURAH_NAMES_RU.get(surah_num, best["surah_english"])
-
-        lines.append("✅ <b>Аят найден!</b>\n")
-        lines.append(f"📖 <b>Сура:</b> {surah_num}. {surah_name_ru}")
-        lines.append(f"   <i>{best['surah_name']}</i>")
-        lines.append(f"📌 <b>Аят:</b> {best['ayah']}")
-        lines.append(f"\n<b>Текст аята:</b>")
-        lines.append(f"<blockquote>{best['text']}</blockquote>")
-        lines.append(f"\n🔗 <b>Ссылка:</b> Сура {surah_num}, Аят {best['ayah']}")
-
-        if best["score"] < 100:
-            lines.append(f"\n⚡ Совпадение: {best['score']}%")
-
-        if len(results) > 1 and results[1]["score"] >= 75:
-            lines.append("\n\n━━━━━━━━━━━━━━━━")
-            lines.append("📋 <b>Возможные варианты:</b>\n")
-            for i, r in enumerate(results[1:], 2):
-                if r["score"] >= 75:
-                    s_num = r["surah"]
-                    s_name = SURAH_NAMES_RU.get(s_num, r["surah_english"])
-                    lines.append(
-                        f"  {i}. Сура {s_num} ({s_name}), Аят {r['ayah']} "
-                        f"— {r['score']}%"
-                    )
+    # Лучший результат — всегда показываем подробно
+    if best["score"] >= 90:
+        lines.append(f"✅ <b>Похож на {best['score']}%</b>\n")
+    elif best["score"] >= 70:
+        lines.append(f"🔶 <b>Возможное совпадение ({best['score']}%)</b>\n")
     else:
-        lines.append("🔍 <b>Точного совпадения не найдено.</b>\n")
-        lines.append("Наиболее похожие аяты:\n")
-        for i, r in enumerate(results, 1):
+        lines.append(f"🔍 <b>Наиболее похожий результат ({best['score']}%)</b>\n")
+
+    lines.append(f"📖 <b>Сура:</b> {surah_num}. {surah_name_ru}")
+    lines.append(f"   <i>{best['surah_name']}</i>")
+    lines.append(f"📌 <b>Аят:</b> {best['ayah']}")
+    lines.append(f"\n<b>Текст аята:</b>")
+    lines.append(f"<blockquote>{best['text']}</blockquote>")
+
+    translit = best.get("transliteration", "")
+    if translit:
+        lines.append(f"\n<b>Транскрипция:</b>")
+        lines.append(f"<i>{translit}</i>")
+
+    # Остальные варианты — всегда показываем
+    if len(results) > 1:
+        lines.append("\n━━━━━━━━━━━━━━━━")
+        lines.append("📋 <b>Другие варианты:</b>\n")
+        for i, r in enumerate(results[1:], 2):
             s_num = r["surah"]
             s_name = SURAH_NAMES_RU.get(s_num, r["surah_english"])
-            lines.append(f"  {i}. Сура {s_num} ({s_name}), Аят {r['ayah']}")
-            lines.append(f"     <blockquote>{r['text'][:100]}...</blockquote>")
-            lines.append(f"     Совпадение: {r['score']}%\n")
+            lines.append(
+                f"  {i}. Сура {s_num} ({s_name}), Аят {r['ayah']} "
+                f"— <b>{r['score']}%</b>"
+            )
+            # Показываем текст для первых 2 альтернатив
+            if i <= 3:
+                lines.append(f"     <i>{r['text'][:80]}...</i>")
 
     return "\n".join(lines)
 

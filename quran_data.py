@@ -1,10 +1,13 @@
 """
 Модуль для загрузки и поиска аятов Корана.
-Использует API alquran.cloud для получения данных.
+Загружает арабский текст и транскрипцию (латиницу) из API.
+Поддерживает поиск по арабскому тексту, латинской транскрипции
+и русской транскрипции с нечётким сравнением.
 """
 
 import json
 import os
+import re
 import aiohttp
 from rapidfuzz import fuzz
 
@@ -130,32 +133,46 @@ SURAH_NAMES_RU = {
 
 
 async def download_quran_data():
-    """Скачивает полный текст Корана на арабском через API."""
+    """Скачивает полный текст Корана на арабском + транскрипцию через API."""
     if os.path.exists(QURAN_CACHE_FILE):
         with open(QURAN_CACHE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
 
     print("Загрузка данных Корана...")
-    quran_data = []
+    arabic_data = {}
+    transliteration_data = {}
 
     async with aiohttp.ClientSession() as session:
-        # Загружаем весь Коран одним запросом
-        url = "https://api.alquran.cloud/v1/quran/quran-simple"
-        async with session.get(url) as resp:
+        # Загружаем арабский текст
+        url_ar = "https://api.alquran.cloud/v1/quran/quran-simple"
+        async with session.get(url_ar) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 for surah in data["data"]["surahs"]:
-                    surah_number = surah["number"]
-                    surah_name = surah["name"]
-                    surah_english = surah["englishName"]
                     for ayah in surah["ayahs"]:
-                        quran_data.append({
-                            "surah": surah_number,
-                            "surah_name": surah_name,
-                            "surah_english": surah_english,
+                        arabic_data[ayah["number"]] = {
+                            "surah": surah["number"],
+                            "surah_name": surah["name"],
+                            "surah_english": surah["englishName"],
                             "ayah": ayah["numberInSurah"],
                             "text": ayah["text"],
-                        })
+                        }
+
+        # Загружаем транскрипцию (латиницу)
+        url_tr = "https://api.alquran.cloud/v1/quran/en.transliteration"
+        async with session.get(url_tr) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                for surah in data["data"]["surahs"]:
+                    for ayah in surah["ayahs"]:
+                        transliteration_data[ayah["number"]] = ayah["text"]
+
+    # Объединяем
+    quran_data = []
+    for num, ar in arabic_data.items():
+        entry = {**ar}
+        entry["transliteration"] = transliteration_data.get(num, "")
+        quran_data.append(entry)
 
     with open(QURAN_CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(quran_data, f, ensure_ascii=False, indent=2)
@@ -166,7 +183,6 @@ async def download_quran_data():
 
 def normalize_arabic(text: str) -> str:
     """Нормализует арабский текст для лучшего сравнения."""
-    # Убираем диакритические знаки (ташкиль)
     diacritics = [
         '\u064B', '\u064C', '\u064D', '\u064E', '\u064F',
         '\u0650', '\u0651', '\u0652', '\u0670', '\u0640',
@@ -174,54 +190,233 @@ def normalize_arabic(text: str) -> str:
     for d in diacritics:
         text = text.replace(d, '')
 
-    # Нормализуем алиф
     text = text.replace('إ', 'ا').replace('أ', 'ا').replace('آ', 'ا').replace('ٱ', 'ا')
-    # Нормализуем та-марбута
     text = text.replace('ة', 'ه')
-    # Нормализуем яа
     text = text.replace('ى', 'ي')
-
-    # Убираем лишние пробелы
     text = ' '.join(text.split())
     return text.strip()
 
 
-# Таблица транслитерации русский -> арабский (упрощённая)
-TRANSLIT_MAP = {
-    'а': 'ا', 'б': 'ب', 'т': 'ت', 'с': 'ث', 'дж': 'ج',
-    'х': 'ح', 'д': 'د', 'з': 'ز', 'р': 'ر', 'с': 'س',
-    'ш': 'ش', 'с': 'ص', 'д': 'ض', 'т': 'ط', 'з': 'ظ',
-    'аа': 'ع', 'г': 'غ', 'ф': 'ف', 'к': 'ق', 'кя': 'ك',
-    'л': 'ل', 'м': 'م', 'н': 'ن', 'h': 'ه', 'в': 'و',
-    'й': 'ي', 'у': 'و', 'и': 'ي',
+def normalize_translit(text: str) -> str:
+    """Нормализует транскрипцию (латиница или русская) для сравнения."""
+    text = text.lower().strip()
+    # Убираем знаки препинания и спецсимволы
+    text = re.sub(r'[^\w\s]', '', text)
+    text = ' '.join(text.split())
+    return text
+
+
+# Русский -> латинская транскрипция (для сравнения с en.transliteration)
+RUSSIAN_TO_LATIN = {
+    'бисмилля': 'bismillah',
+    'аллах': 'allah',
+    'рахман': 'rahman',
+    'рахим': 'raheem',
+    'альхамдулилля': 'alhamdu lillahi',
+    'хамд': 'hamd',
+    'рабб': 'rabb',
+    'аламин': 'alamin',
+    'малик': 'maliki',
+    'йаум': 'yawmi',
+    'дин': 'deen',
+    'иййака': 'iyyaka',
+    'набуду': 'nabudu',
+    'настаин': 'nastaeen',
+    'ихдина': 'ihdina',
+    'сырат': 'sirat',
+    'мустаким': 'mustaqeem',
+    'куль': 'qul',
+    'хува': 'huwa',
+    'ахад': 'ahad',
+    'самад': 'samad',
+    'лям': 'lam',
+    'йалид': 'yalid',
+    'юлад': 'yulad',
+    'куфуван': 'kufuwan',
+    'фаляк': 'falaq',
+    'аузу': 'aoothu',
+    'шарр': 'sharri',
+    'халяк': 'khalaqa',
+    'гасик': 'ghasiqin',
+    'вакаб': 'waqab',
+    'наффасат': 'naffathati',
+    'укад': 'uqad',
+    'хасид': 'hasid',
+    'нас': 'nas',
+    'малик': 'maliki',
+    'илях': 'ilahi',
+    'васвас': 'waswas',
+    'ханнас': 'khannas',
+    'джинна': 'jinnati',
+    'ихляс': 'ikhlas',
+    'таббат': 'tabbat',
+    'масад': 'masad',
+    'идха': 'itha',
+    'джаа': 'jaa',
+    'наср': 'nasru',
+    'фатх': 'fath',
+    'кяфирун': 'kafirun',
+    'кяусар': 'kawthar',
+    'маун': 'maun',
+    'курайш': 'quraysh',
+    'филь': 'feel',
+    'хумаза': 'humazah',
+    'аср': 'asr',
+    'такасур': 'takathur',
+    'кариа': 'qariah',
+    'адият': 'adiyat',
+    'зальзаля': 'zalzalah',
+    'баййина': 'bayyinah',
+    'кадр': 'qadr',
+    'аляк': 'alaq',
+    'тин': 'teen',
+    'шарх': 'sharh',
+    'духа': 'duha',
+    'лейль': 'layl',
+    'шамс': 'shams',
+    'балад': 'balad',
+    'фаджр': 'fajr',
+    'гашия': 'ghashiyah',
+    # Общие слова
+    'ва': 'wa',
+    'ля': 'la',
+    'мин': 'min',
+    'фи': 'fee',
+    'ан': 'an',
+    'ма': 'ma',
+    'инна': 'inna',
+    'аллязи': 'allatheena',
+    'каля': 'qala',
+    'ляху': 'lahu',
+    'илля': 'illa',
+    'аля': 'ala',
+    'хум': 'hum',
+    'кяна': 'kana',
+    'бихи': 'bihi',
+    'раббика': 'rabbika',
 }
 
 
-def search_ayah(quran_data: list, query: str, top_n: int = 3) -> list:
+def russian_to_latin(text: str) -> str:
+    """Конвертирует русскую транскрипцию в латинскую для сравнения."""
+    text_lower = text.lower()
+
+    # Сначала заменяем известные слова/фразы (длинные первыми)
+    sorted_keys = sorted(RUSSIAN_TO_LATIN.keys(), key=len, reverse=True)
+    for ru, lat in ((k, RUSSIAN_TO_LATIN[k]) for k in sorted_keys):
+        text_lower = text_lower.replace(ru, lat)
+
+    # Базовая побуквенная транслитерация для оставшихся символов
+    char_map = {
+        'а': 'a', 'б': 'b', 'в': 'w', 'г': 'gh', 'д': 'd',
+        'е': 'e', 'ё': 'yo', 'ж': 'zh', 'з': 'z', 'и': 'i',
+        'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n',
+        'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't',
+        'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+        'ш': 'sh', 'щ': 'sh', 'ъ': '', 'ы': 'y', 'ь': '',
+        'э': 'e', 'ю': 'yu', 'я': 'ya',
+    }
+    result = []
+    for ch in text_lower:
+        if ch in char_map:
+            result.append(char_map[ch])
+        else:
+            result.append(ch)
+
+    return ''.join(result)
+
+
+def is_arabic(text: str) -> bool:
+    """Проверяет, содержит ли текст арабские символы."""
+    return any('\u0600' <= ch <= '\u06FF' or '\u0750' <= ch <= '\u077F' for ch in text)
+
+
+def is_russian(text: str) -> bool:
+    """Проверяет, содержит ли текст русские символы."""
+    return any('\u0400' <= ch <= '\u04FF' for ch in text)
+
+
+def search_ayah(quran_data: list, query: str, top_n: int = 5) -> list:
     """
-    Ищет аят по тексту (арабский или транскрипция).
-    Возвращает список лучших совпадений.
+    Ищет аят по тексту. ВСЕГДА возвращает топ результатов с процентом.
+    Поддерживает: арабский текст, латинскую транскрипцию, русскую транскрипцию.
     """
-    query_normalized = normalize_arabic(query)
     results = []
 
-    for ayah_data in quran_data:
-        ayah_text = ayah_data["text"]
-        ayah_normalized = normalize_arabic(ayah_text)
+    if is_arabic(query):
+        # Поиск по арабскому тексту
+        query_norm = normalize_arabic(query)
+        for ayah_data in quran_data:
+            ayah_norm = normalize_arabic(ayah_data["text"])
 
-        # Проверяем точное вхождение
-        if query_normalized in ayah_normalized:
-            score = 100
-        else:
-            # Нечёткое сравнение
-            score = fuzz.partial_ratio(query_normalized, ayah_normalized)
+            if query_norm in ayah_norm:
+                score = 100
+            else:
+                # Используем несколько методов и берём лучший
+                score1 = fuzz.partial_ratio(query_norm, ayah_norm)
+                score2 = fuzz.token_sort_ratio(query_norm, ayah_norm)
+                score3 = fuzz.token_set_ratio(query_norm, ayah_norm)
+                score = max(score1, score2, score3)
 
-        if score >= 60:
-            results.append({
-                **ayah_data,
-                "score": score,
-            })
+            results.append({**ayah_data, "score": score})
 
-    # Сортируем по score и берём top_n
+    elif is_russian(query):
+        # Русская транскрипция -> латинская -> сравниваем с transliteration
+        query_latin = russian_to_latin(query)
+        query_norm = normalize_translit(query_latin)
+        query_ru_norm = normalize_translit(query)
+
+        for ayah_data in quran_data:
+            translit = ayah_data.get("transliteration", "")
+            translit_norm = normalize_translit(translit)
+
+            if not translit_norm:
+                continue
+
+            # Сравниваем латинизированный русский с транскрипцией
+            score1 = fuzz.partial_ratio(query_norm, translit_norm)
+            score2 = fuzz.token_sort_ratio(query_norm, translit_norm)
+            score3 = fuzz.token_set_ratio(query_norm, translit_norm)
+
+            # Также пробуем прямое сравнение русского текста
+            # (на случай если кто-то пишет близко к латинской транскрипции)
+            score4 = fuzz.partial_ratio(query_ru_norm, translit_norm)
+
+            score = max(score1, score2, score3, score4)
+            results.append({**ayah_data, "score": score})
+
+    else:
+        # Латинская транскрипция
+        query_norm = normalize_translit(query)
+        for ayah_data in quran_data:
+            translit = ayah_data.get("transliteration", "")
+            translit_norm = normalize_translit(translit)
+
+            if not translit_norm:
+                continue
+
+            if query_norm in translit_norm:
+                score = 100
+            else:
+                score1 = fuzz.partial_ratio(query_norm, translit_norm)
+                score2 = fuzz.token_sort_ratio(query_norm, translit_norm)
+                score3 = fuzz.token_set_ratio(query_norm, translit_norm)
+                score = max(score1, score2, score3)
+
+            results.append({**ayah_data, "score": score})
+
+    # Сортируем и берём топ
     results.sort(key=lambda x: x["score"], reverse=True)
-    return results[:top_n]
+
+    # Убираем дубликаты (один аят может попасть несколько раз)
+    seen = set()
+    unique = []
+    for r in results:
+        key = (r["surah"], r["ayah"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+        if len(unique) >= top_n:
+            break
+
+    return unique
