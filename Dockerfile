@@ -1,7 +1,10 @@
 FROM python:3.11-slim
 
-# Установка ffmpeg для обработки аудио/видео
+# Установка ffmpeg и системных зависимостей
 RUN apt-get update && apt-get install -y ffmpeg git && rm -rf /var/lib/apt/lists/*
+
+# Обновляем pip и setuptools
+RUN pip install --upgrade pip setuptools wheel
 
 WORKDIR /app
 
